@@ -1,0 +1,15 @@
+customtkinter
+packaging
+pillow
+numpy
+pandas
+scipy
+soundfile
+sounddevice
+librosa
+pygame
+matplotlib
+torch
+torchaudio
+tensorflow
+h5py

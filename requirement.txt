@@ -1,1 +1,0 @@
-pip install torch torchaudio numpy matplotlib scipy pandas progressbar2
