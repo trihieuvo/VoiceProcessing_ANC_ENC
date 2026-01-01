@@ -5,9 +5,6 @@ import torch.optim as optim
 import scipy.signal as signal
 import progressbar
 
-#------------------------------------------------------------------------------
-# Class: FxNLMS algorithm
-#------------------------------------------------------------------------------
 class FxNLMS():
     
     def __init__(self, Len):
@@ -29,9 +26,7 @@ class FxNLMS():
         return self.Wc.detach().numpy()
 
 
-#------------------------------------------------------------------------------
-# Function : train_fxlms_algorithm()
-#------------------------------------------------------------------------------
+
 def train_fxnlms_algorithm(Model, Ref, Disturbance, Stepsize=0.0001):
    
     bar = progressbar.ProgressBar(maxval=2*Disturbance.shape[0], \
@@ -63,9 +58,7 @@ def train_fxnlms_algorithm(Model, Ref, Disturbance, Stepsize=0.0001):
     bar.finish()
     return Erro_signal
 
-#------------------------------------------------------------
-# Function : Generating the testing bordband noise 
-#------------------------------------------------------------
+
 def Generating_boardband_noise_wavefrom_tensor(Wc_F, Seconds, fs):
     filter_len = 1024 
     bandpass_filter = signal.firwin(filter_len, Wc_F, pass_zero='bandpass', window ='hamming',fs=fs) 

@@ -9,36 +9,30 @@ import soundfile as sf  # <--- Dùng thư viện này thay cho torchaudio.load
 FS = 16000
 
 def load_audio_file(filepath, target_fs=FS):
-    """Tải và resample file âm thanh về 16kHz dùng soundfile"""
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Không tìm thấy file: {filepath}")
     
-    # --- THAY ĐỔI: Dùng soundfile để đọc trực tiếp ---
     try:
         # data: numpy array [Frames, Channels]
         data, sample_rate = sf.read(filepath)
     except Exception as e:
         raise RuntimeError(f"Lỗi khi đọc file wav bằng soundfile: {e}")
 
-    # Chuyển từ Numpy sang Torch Tensor
+
     waveform = torch.from_numpy(data).float()
 
-    # Xử lý chiều (Shape): Soundfile trả về [Time, Channel], Torch cần [Channel, Time]
     if waveform.ndim == 1:
-        # Nếu là mono (1 kênh), thêm chiều channel -> [1, Time]
         waveform = waveform.unsqueeze(0)
     else:
-        # Nếu nhiều kênh, chuyển vị -> [Channel, Time]
         waveform = waveform.t()
-    # -----------------------------------------------
+
     
-    # Resample nếu cần
+    # Resample
     if sample_rate != target_fs:
-        # Lưu ý: T.Resample vẫn dùng được vì nó không liên quan đến I/O backend
         resampler = T.Resample(sample_rate, target_fs, dtype=waveform.dtype)
         waveform = resampler(waveform)
     
-    # Chỉ lấy kênh đầu tiên nếu là stereo để đảm bảo đầu ra là [1, Time]
+    # lấy kênh đầu tiên nếu là stereo
     if waveform.shape[0] > 1:
         waveform = waveform[0:1, :]
         
@@ -80,11 +74,9 @@ def save_audio_file(filepath, data, sample_rate=16000):
         data: Dữ liệu âm thanh (Tensor hoặc Numpy array)
         sample_rate: Tần số lấy mẫu
     """
-    # Chuyển Tensor sang Numpy nếu cần
     if torch.is_tensor(data):
         data = data.detach().cpu().numpy()
-    
-    # Đảm bảo dữ liệu là mảng 1 chiều cho soundfile
+
     data = np.squeeze(data)
     
     # Lưu file

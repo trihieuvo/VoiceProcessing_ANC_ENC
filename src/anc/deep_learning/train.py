@@ -8,24 +8,23 @@ import soundfile as sf
 import numpy as np
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from torch.cuda.amp import GradScaler, autocast # <--- Thư viện tăng tốc FP16
+from torch.cuda.amp import GradScaler, autocast
 
 # Import kiến trúc mạng
 from network import CNN
 
-# --- CẤU HÌNH TỐI ƯU CHO RTX 3050 ---
-BATCH_SIZE = 256        # Tăng lên 128 (hoặc 256 nếu VRAM chịu nổi) để tận dụng GPU
+# --- CẤU HÌNH SỬ DỤNG CHO VGA 4GB VRAM ---
+BATCH_SIZE = 256        
 LEARNING_RATE = 0.001
 EPOCHS = 50
 TARGET_FS = 16000
 NUM_CLASSES = 15
 
-# Cấu hình phần cứng
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-# Bật chế độ tìm thuật toán nhanh nhất cho CNN
+
 torch.backends.cudnn.benchmark = True 
 
-# Số nhân CPU dùng để load dữ liệu (RTX 3050 thường đi với CPU 6-8 nhân, set 4 là an toàn)
+
 NUM_WORKERS = 4 
 
 # ĐƯỜNG DẪN DATASET
@@ -54,7 +53,7 @@ class ANCDataset(Dataset):
         path, label = self.files[idx]
         try:
             # Dùng soundfile đọc cực nhanh
-            audio_data, fs = sf.read(path, dtype='float32') # Đọc trực tiếp float32
+            audio_data, fs = sf.read(path, dtype='float32')
             
             waveform = torch.from_numpy(audio_data)
             
@@ -63,7 +62,7 @@ class ANCDataset(Dataset):
             else:
                 waveform = waveform.t()
 
-            # Resample (Chỉ làm nếu cần thiết để tiết kiệm CPU)
+          
             if fs != self.target_fs:
                 resampler = torchaudio.transforms.Resample(fs, self.target_fs)
                 waveform = resampler(waveform)
@@ -78,7 +77,6 @@ class ANCDataset(Dataset):
             
             return waveform, label
         except Exception as e:
-            # print(f"Lỗi: {path}") 
             return torch.zeros(1, 16000), label
 
 # --- 2. MODEL ---
@@ -93,7 +91,7 @@ def get_model():
     )
     return model.to(DEVICE)
 
-# --- 3. TRAINING LOOP (CÓ AMP) ---
+# --- 3. TRAINING LOOP ---
 def train_one_epoch(model, loader, criterion, optimizer, scaler):
     model.train()
     total_loss = 0
@@ -102,24 +100,20 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler):
     
     loop = tqdm(loader, leave=False)
     for data, targets in loop:
-        # non_blocking=True giúp chuyển dữ liệu song song với tính toán
+       
         data = data.to(DEVICE, non_blocking=True)
         targets = targets.to(DEVICE, non_blocking=True)
 
-        # --- TĂNG TỐC VỚI MIXED PRECISION ---
-        # Chạy forward pass dưới dạng float16
         with autocast():
             predictions = model(data)
             loss = criterion(predictions, targets)
 
         optimizer.zero_grad()
         
-        # Scale loss và backward (để tránh underflow số quá nhỏ)
+      
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        # ------------------------------------
-
         total_loss += loss.item()
         _, predicted = predictions.max(1)
         total += targets.size(0)
@@ -140,7 +134,7 @@ def validate(model, loader, criterion):
             data = data.to(DEVICE, non_blocking=True)
             targets = targets.to(DEVICE, non_blocking=True)
 
-            # Validate cũng dùng autocast cho nhanh
+          
             with autocast():
                 predictions = model(data)
                 loss = criterion(predictions, targets)
@@ -164,7 +158,7 @@ def main():
     val_ds = ANCDataset(DATASET_ROOT, 'val')
     
     if len(train_ds) == 0:
-        print("❌ Lỗi: Không tìm thấy dữ liệu train.")
+        print("Lỗi: Không tìm thấy dữ liệu train.")
         return
 
     # DataLoader tối ưu
@@ -238,7 +232,7 @@ def main():
     plt.legend()
     
     plt.savefig('training_result.png')
-    print("\n✅ DONE.")
+    print("\n DONE.")
 
 if __name__ == "__main__":
     main()

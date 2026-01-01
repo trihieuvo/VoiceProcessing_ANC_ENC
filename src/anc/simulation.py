@@ -5,10 +5,8 @@ from numpy.core.fromnumeric import repeat
 from scipy import signal, misc
 import torch
 
-#-------------------------------------------------------------
 # Function: Disturbance_reference_generation()
 # Description: Generate the disturbance and reference by using the defuat paramters.
-#-------------------------------------------------------------
 def Disturbance_reference_generation():
     # Defined the configuration for the ANC system
     fs = 16000 # The system sampling rate 
@@ -69,10 +67,8 @@ def Disturbance_reference_generation():
     
     return torch.from_numpy(Dir).type(torch.float), torch.from_numpy(Fx).type(torch.float)
 
-#-------------------------------------------------------------
 # Function: Disturbance_reference_generation_from_Fvector()
 # Discription : Generating the distubrane and reference signal from the defined parameters
-#-------------------------------------------------------------
 def Disturbance_reference_generation_from_Fvector(fs, T, f_vector, Pri_path, Sec_path):
     # Pri_path and Sec_path are One dimension arraies
     # constructing bandpass filter based on f_vector
@@ -89,10 +85,8 @@ def Disturbance_reference_generation_from_Fvector(fs, T, f_vector, Pri_path, Sec
     
     return torch.from_numpy(Dir).type(torch.float), torch.from_numpy(Fx).type(torch.float)
 
-#-------------------------------------------------------------
 # Function: Disturbance_generation_from_real_noise()
 # Descritption: Generating the disturbance and filtered reference from the raw waveform
-#-------------------------------------------------------------
 def Disturbance_generation_from_real_noise(fs, Repet, wave_form, Pri_path, Sec_path):
     wave = wave_form[0,:].numpy()
     wavec = wave
@@ -109,10 +103,9 @@ def Disturbance_generation_from_real_noise(fs, Repet, wave_form, Pri_path, Sec_p
     
     return torch.from_numpy(Dir).type(torch.float), torch.from_numpy(Fx).type(torch.float), torch.from_numpy(wavec).type(torch.float)
 
-#-------------------------------------------------------------
+
 # Function: Varied_distrubance_reference_generation_from_Fvector()
 # Discription : Generating the distubrane and reference signal from the defined parameters
-#-------------------------------------------------------------
 def Varied_distrubance_reference_generation_from_Fvector(fs, T, f_vector, Pri_path, Sec_path):
     t = np.arange(0,T,1/fs).reshape(-1,1)
     len_f = 1024

@@ -526,7 +526,7 @@ class MainApp(ctk.CTk):
             ax.tick_params(colors='white', labelsize=8)
             for spine in ax.spines.values(): spine.set_color('white')
 
-        # Dùng logic subplots_adjust giống ANC
+        # Dùng logic subplots_adjust 
         self.enc_fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08, hspace=0.3)
         
         self.enc_canvas = FigureCanvasTkAgg(self.enc_fig, master=tab)
@@ -586,10 +586,8 @@ class MainApp(ctk.CTk):
                 out_path = os.path.join(output_dir, f"Denoised_{now}.wav")
                 sf.write(out_path, audio_flat, config_params.SAMPLE_RATE, 'PCM_24')
                 
-                # CHÚ Ý: Lấy cả FS để tính thời gian
                 sig_orig, fs_orig = sf.read(self.current_file_path)
                 
-                # Pass FS vào hàm display
                 self.after(0, lambda: self.display_enc_results(sig_orig, audio_flat, out_path, fs_orig))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Error ENC", str(e)))
@@ -599,10 +597,10 @@ class MainApp(ctk.CTk):
         threading.Thread(target=thread_task).start()
 
     def display_enc_results(self, original, cleaned, clean_path, fs_orig):
-        # Chuyển Stereo -> Mono nếu cần để vẽ cho gọn
+        # Chuyển Stereo -> Mono 
         if len(original.shape) > 1: original = original[:, 0]
         
-        # Tính thời gian (Duration)
+        # Tính thời gian dài tín hiệu
         dur_orig = len(original) / fs_orig
         dur_clean = len(cleaned) / config_params.SAMPLE_RATE
 
@@ -618,7 +616,7 @@ class MainApp(ctk.CTk):
         ax1 = self.enc_axs[0]
         ax1.clear()
         ax1.set_facecolor(PLOT_BG_COLOR)
-        # Vẽ theo trục thời gian t_orig
+        # Vẽ theo trục thời gian
         ax1.plot(t_orig, orig_ds, color='#3498db', linewidth=0.5)
         ax1.set_title("Original (Noisy)", color='white', fontsize=9, fontweight='bold')
         ax1.grid(True, alpha=0.3)
@@ -630,7 +628,7 @@ class MainApp(ctk.CTk):
         ax2 = self.enc_axs[1]
         ax2.clear()
         ax2.set_facecolor(PLOT_BG_COLOR)
-        # Vẽ theo trục thời gian t_clean
+        # Vẽ theo trục thời gian
         ax2.plot(t_clean, clean_ds, color='#2ecc71', linewidth=0.5)
         ax2.set_title("Result (Cleaned)", color='white', fontsize=9, fontweight='bold')
         ax2.grid(True, alpha=0.3)
