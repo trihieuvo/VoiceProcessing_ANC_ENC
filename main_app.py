@@ -13,7 +13,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import torch
 from tensorflow.keras.models import load_model
 
-# --- IMPORT MODULES CỦA BẠN ---
+# --- IMPORT MODULES ---
 from src.anc.network import CNN, CNNRes
 from src.anc.utils import load_audio_file, load_anc_paths, load_pretrained_filters, save_audio_file
 from src.anc.simulation import Disturbance_generation_from_real_noise
@@ -23,8 +23,9 @@ from src.enc import config_params
 # Cấu hình giao diện
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("green")
+PLOT_BG_COLOR = '#2b2b2b'
 
-# --- HÀM TỐI ƯU HÓA THUẬT TOÁN ---
+# --- HÀM TỐI ƯU HÓA ---
 def train_fxnlms_numpy(initial_weights_tensor, ref_tensor, dist_tensor, step_size=0.001, len_filter=1024):
     if isinstance(initial_weights_tensor, torch.Tensor):
         w = initial_weights_tensor.detach().cpu().numpy().flatten()
@@ -51,21 +52,22 @@ def train_fxnlms_numpy(initial_weights_tensor, ref_tensor, dist_tensor, step_siz
     return e_signal
 
 def downsample_signal(signal, max_points=100000):
-    """Giảm số lượng điểm vẽ để tránh lỗi Matplotlib khi file quá dài"""
+    """Giảm số lượng điểm vẽ"""
     if len(signal) > max_points:
         step = len(signal) // max_points
         return signal[::step]
     return signal
 
-# --- CLASS XỬ LÝ ÂM THANH (THAY THẾ PYGAME) ---
+
+# --- CLASS AUDIO PLAYER ---
 class AudioPlayer:
     def __init__(self):
         self.data = None
         self.fs = 16000
         self.current_idx = 0
         self.is_playing = False
-        self.stream = None
-        self.lock = threading.Lock()
+        self._start_time = 0
+        self._start_idx = 0
         
     def load(self, filepath):
         self.stop()
@@ -82,17 +84,10 @@ class AudioPlayer:
 
     def play(self):
         if self.data is None: return
-        self.stop() # Đảm bảo stream cũ dừng
+        self.stop() 
         self.is_playing = True
-        
-        # Tính đoạn dữ liệu còn lại từ vị trí hiện tại
         data_to_play = self.data[self.current_idx:]
-        
-        # Dùng sd.play là cách đơn giản nhất thay vì OutputStream phức tạp
-        # Nhược điểm là khó track vị trí chính xác realtime, nhưng đủ dùng cho app này
         sd.play(data_to_play, self.fs)
-        
-        # Bắt đầu thread đếm thời gian để cập nhật slider (nếu cần logic phức tạp hơn)
         self._start_time = time.time()
         self._start_idx = self.current_idx
 
@@ -100,7 +95,6 @@ class AudioPlayer:
         if self.is_playing:
             sd.stop()
             self.is_playing = False
-            # Cập nhật vị trí hiện tại dựa trên thời gian đã trôi qua
             elapsed = time.time() - self._start_time
             self.current_idx = self._start_idx + int(elapsed * self.fs)
             if self.current_idx > len(self.data):
@@ -109,14 +103,12 @@ class AudioPlayer:
     def stop(self):
         sd.stop()
         self.is_playing = False
-        # Không reset current_idx về 0 ở đây để hỗ trợ pause, 
-        # logic reset sẽ nằm ở seek hoặc load
 
     def seek(self, ratio):
         if self.data is None: return
         self.current_idx = int(len(self.data) * ratio)
         if self.is_playing:
-            self.play() # Restart từ vị trí mới
+            self.play()
 
     def get_duration(self):
         if self.data is None: return 0
@@ -131,7 +123,6 @@ class AudioPlayer:
         else:
             return self.current_idx / self.fs
 
-# --- LOGIC GHI ÂM ---
 class AudioRecorder:
     def __init__(self, output_folder):
         self.recording = False
@@ -248,169 +239,141 @@ class MainApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("AI Voice Processing System (ANC & ENC)")
-        self.geometry("1250x900")
+        self.title("ANC & ENC Audio Processing Application")
+        self.geometry("1280x900")
         
-        # --- Variables ---
         self.current_file_path = None
-        self.playing_file_path = None 
         self.recorder = AudioRecorder(os.path.join("input_audio", "record"))
         self.is_recording = False
-        
-        # Audio Player Object
         self.player = AudioPlayer()
-        self.playback_paused = False
 
-        # --- Layout ---
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(1, weight=1)
 
-        # 1. Sidebar (File List)
-        self.sidebar = ctk.CTkFrame(self, width=250, corner_radius=0)
+        # 1. Sidebar
+        self.sidebar = ctk.CTkFrame(self, width=260, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=3, sticky="nsew")
         self.setup_sidebar()
 
         # 2. Main Tabview
         self.tabview = ctk.CTkTabview(self)
         self.tabview.grid(row=0, column=1, rowspan=2, padx=20, pady=(10, 0), sticky="nsew")
-        self.tabview.add("ANC (Active Noise Cancellation)")
-        self.tabview.add("ENC (Speech Enhancement)")
+        self.tabview.add("ANC Mode")
+        self.tabview.add("ENC Mode")
 
         self.setup_anc_tab()
         self.setup_enc_tab()
 
         # 3. Persistent Player
-        self.player_frame = ctk.CTkFrame(self, height=140, corner_radius=10, fg_color="#1e1e1e")
-        self.player_frame.grid(row=2, column=1, padx=20, pady=20, sticky="ew")
+        self.player_frame = ctk.CTkFrame(self, height=120, corner_radius=0, fg_color="#1a1a1a")
+        self.player_frame.grid(row=2, column=1, padx=0, pady=0, sticky="ew")
         self.setup_player_ui()
 
     def setup_sidebar(self):
-        # Header
-        ctk.CTkLabel(self.sidebar, text="AUDIO EXPLORER", font=ctk.CTkFont(size=20, weight="bold")).pack(pady=(30, 10))
+        ctk.CTkLabel(self.sidebar, text="INPUT FILES:", font=("Arial", 16, "bold"), text_color="gray").pack(pady=(20, 10), padx=20, anchor="w")
         
-        # Record Button (Nổi bật)
-        self.btn_record = ctk.CTkButton(self.sidebar, text="● Start Recording", fg_color="#c0392b", hover_color="#e74c3c", 
-                                        command=self.toggle_record, height=40, font=("Arial", 12, "bold"))
-        self.btn_record.pack(pady=10, padx=20, fill="x")
-        self.lbl_record_status = ctk.CTkLabel(self.sidebar, text="Ready", text_color="gray")
+        self.btn_record = ctk.CTkButton(self.sidebar, text="RECORD AUDIO", fg_color="#c0392b", hover_color="#e74c3c", 
+                                        command=self.toggle_record, height=35, font=("Arial", 12, "bold"))
+        self.btn_record.pack(pady=5, padx=20, fill="x")
+        self.lbl_record_status = ctk.CTkLabel(self.sidebar, text="Ready to record", text_color="gray", font=("Arial", 11))
         self.lbl_record_status.pack(pady=(0, 10))
 
-        ctk.CTkLabel(self.sidebar, text="Input Audio Files:", font=("Arial", 12, "bold"), anchor="w").pack(pady=5, padx=20, fill="x")
-
-        # File List (Scrollable)
-        self.file_list_frame = ctk.CTkScrollableFrame(self.sidebar, label_text="input_audio/")
-        self.file_list_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        self.file_list_frame = ctk.CTkScrollableFrame(self.sidebar, label_text="Available Audio", fg_color="transparent")
+        self.file_list_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.refresh_file_list()
 
-        # Button Refresh
-        ctk.CTkButton(self.sidebar, text="↻ Refresh List", command=self.refresh_file_list, fg_color="transparent", border_width=1).pack(pady=10)
+        ctk.CTkButton(self.sidebar, text="Refresh List", command=self.refresh_file_list, 
+                      fg_color="transparent", border_width=1, text_color="gray", height=25).pack(pady=10)
 
-        # Selected File Info
-        self.lbl_current_file = ctk.CTkLabel(self.sidebar, text="No file selected", wraplength=200, text_color="#2ecc71")
-        self.lbl_current_file.pack(pady=20, padx=10)
+        ctk.CTkLabel(self.sidebar, text="SELECTED FILE:", font=("Arial", 12, "bold"), text_color="gray").pack(padx=20, anchor="w")
+        self.lbl_current_file = ctk.CTkLabel(self.sidebar, text="None", wraplength=220, text_color="#2ecc71", font=("Arial", 12))
+        self.lbl_current_file.pack(pady=(0, 20), padx=20, anchor="w")
 
     def refresh_file_list(self):
-        # Xóa cũ
         for widget in self.file_list_frame.winfo_children():
             widget.destroy()
             
         root_dir = "input_audio"
         if not os.path.exists(root_dir): os.makedirs(root_dir)
         
-        # Duyệt file đệ quy
         files_found = []
         for dirpath, _, filenames in os.walk(root_dir):
             for f in filenames:
                 if f.lower().endswith('.wav'):
                     full_path = os.path.join(dirpath, f)
-                    # Tạo tên hiển thị (nếu trong subfolder thì hiện subfolder/file)
                     rel_path = os.path.relpath(full_path, root_dir)
                     files_found.append((rel_path, full_path))
         
-        # Sắp xếp mới nhất lên đầu (nếu tên file có ngày tháng) hoặc theo tên
         files_found.sort(key=lambda x: x[0], reverse=True) 
 
         for display_name, full_path in files_found:
-            btn = ctk.CTkButton(self.file_list_frame, text=f"🎵 {display_name}", 
-                                anchor="w", fg_color="transparent", hover_color="#34495e",
-                                command=lambda p=full_path: self.on_file_selected(p))
-            btn.pack(fill="x", pady=2)
+            btn = ctk.CTkButton(self.file_list_frame, text=f"  {display_name}", 
+                                anchor="w", fg_color="transparent", text_color="#ecf0f1", hover_color="#34495e",
+                                height=30, command=lambda p=full_path: self.on_file_selected(p))
+            btn.pack(fill="x", pady=1)
 
     def on_file_selected(self, path):
         self.current_file_path = path
-        self.lbl_current_file.configure(text=f"SELECTED:\n{os.path.basename(path)}")
+        self.lbl_current_file.configure(text=os.path.basename(path))
         self.load_to_player(path)
 
-    # ================= RECORDING =================
     def toggle_record(self):
         if not self.is_recording:
             self.is_recording = True
-            self.btn_record.configure(text="■ Stop Recording", fg_color="white", text_color="red")
-            self.lbl_record_status.configure(text="Recording...", text_color="#e74c3c")
+            self.btn_record.configure(text="STOP RECORDING", fg_color="#e74c3c")
+            self.lbl_record_status.configure(text="Recording in progress...", text_color="#e74c3c")
             self.recorder.start()
         else:
             self.is_recording = False
-            self.btn_record.configure(text="● Start Recording", fg_color="#c0392b", text_color="white")
-            self.lbl_record_status.configure(text="Saved", text_color="#2ecc71")
+            self.btn_record.configure(text="RECORD AUDIO", fg_color="#c0392b")
+            self.lbl_record_status.configure(text="File saved successfully", text_color="#2ecc71")
             filepath = self.recorder.stop()
             if filepath:
-                messagebox.showinfo("Recording", f"Đã lưu file tại:\n{filepath}")
-                self.refresh_file_list() # Cập nhật danh sách file
-                self.on_file_selected(filepath) # Tự động chọn
+                self.refresh_file_list()
+                self.on_file_selected(filepath)
 
-    # ================= PLAYER UI =================
     def setup_player_ui(self):
         self.player_frame.grid_columnconfigure(1, weight=1)
         
-        # Play/Pause Button
-        self.btn_play_pause = ctk.CTkButton(self.player_frame, text="▶", width=50, height=50, 
-                                            font=("Arial", 20), corner_radius=25,
+        self.btn_play_pause = ctk.CTkButton(self.player_frame, text="PLAY", width=80, height=40, 
+                                            font=("Arial", 12, "bold"), fg_color="#27ae60", hover_color="#2ecc71",
                                             command=self.toggle_play)
         self.btn_play_pause.grid(row=0, column=0, rowspan=2, padx=20)
         
-        # Info
-        self.lbl_file_playing = ctk.CTkLabel(self.player_frame, text="Waiting for file...", font=("Arial", 12, "bold"), anchor="w")
-        self.lbl_file_playing.grid(row=0, column=1, sticky="w", padx=10, pady=(10,0))
+        self.lbl_file_playing = ctk.CTkLabel(self.player_frame, text="No Audio Loaded", font=("Arial", 12, "bold"), anchor="w")
+        self.lbl_file_playing.grid(row=0, column=1, sticky="w", padx=10, pady=(15,0))
 
-        self.lbl_time = ctk.CTkLabel(self.player_frame, text="00:00 / 00:00")
+        self.lbl_time = ctk.CTkLabel(self.player_frame, text="00:00 / 00:00", font=("Arial", 12))
         self.lbl_time.grid(row=0, column=2, padx=20)
 
-        # Waveform Canvas (Mini)
-        self.fig_player, self.ax_player = plt.subplots(figsize=(8, 1.0), dpi=80)
-        # SET MÀU NỀN CHO PLAYER
-        self.fig_player.patch.set_facecolor('#1e1e1e')
-        self.ax_player.set_facecolor('#1e1e1e')
+        self.fig_player, self.ax_player = plt.subplots(figsize=(8, 0.8), dpi=80)
+        self.fig_player.patch.set_facecolor('#1a1a1a')
+        self.ax_player.set_facecolor('#1a1a1a')
         self.ax_player.axis('off')
         
         self.canvas_player = FigureCanvasTkAgg(self.fig_player, master=self.player_frame)
         self.canvas_player.get_tk_widget().grid(row=1, column=1, sticky="ew", padx=10)
         
-        # Slider (Seek bar)
-        self.slider_seek = ctk.CTkSlider(self.player_frame, from_=0, to=1, command=self.on_seek)
-        self.slider_seek.grid(row=2, column=0, columnspan=3, sticky="ew", padx=20, pady=(5, 10))
+        self.slider_seek = ctk.CTkSlider(self.player_frame, from_=0, to=1, command=self.on_seek, height=15)
+        self.slider_seek.grid(row=2, column=0, columnspan=3, sticky="ew", padx=20, pady=(5, 15))
         self.slider_seek.set(0)
         
-        # Timer Loop
         self.update_player_ui_loop()
 
     def load_to_player(self, filepath):
         if not os.path.exists(filepath): return
         
-        self.playing_file_path = filepath
         self.lbl_file_playing.configure(text=f"Playing: {os.path.basename(filepath)}")
         
         if self.player.load(filepath):
-            # Reset UI
-            self.btn_play_pause.configure(text="▶")
+            self.btn_play_pause.configure(text="PLAY")
             self.slider_seek.configure(to=self.player.get_duration())
             self.slider_seek.set(0)
             self.lbl_time.configure(text=f"00:00 / {self.format_time(self.player.get_duration())}")
             
-            # Vẽ Waveform
             try:
                 sig = self.player.data
-                # Downsample để vẽ nhanh
                 step = max(1, len(sig) // 1000)
                 sig_plot = sig[::step]
                 
@@ -418,40 +381,30 @@ class MainApp(ctk.CTk):
                 self.ax_player.plot(sig_plot, color='#2cc985', linewidth=0.8)
                 self.ax_player.axis('off')
                 self.canvas_player.draw()
-            except Exception as e: print(e)
+            except Exception: pass
 
     def toggle_play(self):
-        if not self.playing_file_path: return
-        
         if self.player.is_playing:
             self.player.pause()
-            self.btn_play_pause.configure(text="▶")
+            self.btn_play_pause.configure(text="PLAY", fg_color="#27ae60")
         else:
             self.player.play()
-            self.btn_play_pause.configure(text="⏸")
+            self.btn_play_pause.configure(text="PAUSE", fg_color="#d35400")
 
     def on_seek(self, value):
-        if self.playing_file_path:
-            ratio = value / self.player.get_duration()
-            # self.player.seek cần tỉ lệ 0-1 hoặc index, 
-            # nhưng ở đây slider max = duration, nên value/duration là sai logic class Player nếu class player nhận ratio
-            # Class Player seek nhận ratio (0-1)
-            self.player.seek(ratio)
-            self.btn_play_pause.configure(text="⏸")
+        ratio = value / self.player.get_duration() if self.player.get_duration() > 0 else 0
+        self.player.seek(ratio)
+        if self.player.is_playing:
+             self.btn_play_pause.configure(text="PAUSE")
 
     def update_player_ui_loop(self):
         if self.player.is_playing:
             curr = self.player.get_current_time()
             dur = self.player.get_duration()
-            
-            # Update Slider (chỉ khi user không đang kéo giữ - khó detect trong ctk, nên ta update luôn)
             self.slider_seek.set(curr)
             self.lbl_time.configure(text=f"{self.format_time(curr)} / {self.format_time(dur)}")
-            
-            # Tự động chuyển icon khi hết bài
             if curr >= dur:
-                self.btn_play_pause.configure(text="▶")
-        
+                self.btn_play_pause.configure(text="PLAY", fg_color="#27ae60")
         self.after(100, self.update_player_ui_loop)
 
     def format_time(self, seconds):
@@ -459,33 +412,27 @@ class MainApp(ctk.CTk):
     
     def load_and_play_result(self, path):
         self.load_to_player(path)
-        self.toggle_play()
+        self.player.play()
+        self.btn_play_pause.configure(text="PAUSE", fg_color="#d35400")
 
     # ================= TAB ANC =================
     def setup_anc_tab(self):
-        tab = self.tabview.tab("ANC (Active Noise Cancellation)")
+        tab = self.tabview.tab("ANC Mode")
         tab.grid_columnconfigure(0, weight=1)
         tab.grid_rowconfigure(1, weight=1)
 
-        # Controls Frame
-        ctrl_frame = ctk.CTkFrame(tab, fg_color="transparent")
-        ctrl_frame.grid(row=0, column=0, sticky="ew", pady=10)
-        
-        self.btn_run_anc = ctk.CTkButton(ctrl_frame, text="⚡ RUN ANC ALGORITHM", 
-                                         height=40, font=("Arial", 14, "bold"),
+        self.btn_run_anc = ctk.CTkButton(tab, text="RUN ANC SIMULATION", 
+                                         height=40, font=("Arial", 13, "bold"), fg_color="#2980b9",
                                          command=self.run_anc_process)
-        self.btn_run_anc.pack(fill="x", padx=100)
+        self.btn_run_anc.grid(row=0, column=0, padx=20, pady=10, sticky="ew")
 
-        # Plot Area
         self.anc_fig = plt.figure(figsize=(10, 10), dpi=80)
-        # SET MÀU NỀN TRƯỚC KHI VẼ
-        self.anc_fig.patch.set_facecolor('#2b2b2b')
+        self.anc_fig.patch.set_facecolor(PLOT_BG_COLOR)
         self.anc_axs = self.anc_fig.subplots(4, 1, sharex=True)
         
-        # Set style cho các axes trống
         for ax in self.anc_axs:
-            ax.set_facecolor('#2b2b2b')
-            ax.tick_params(colors='white')
+            ax.set_facecolor(PLOT_BG_COLOR)
+            ax.tick_params(colors='white', labelsize=8)
             for spine in ax.spines.values(): spine.set_color('white')
             
         self.anc_fig.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.05, hspace=0.4)
@@ -493,21 +440,20 @@ class MainApp(ctk.CTk):
         self.anc_canvas = FigureCanvasTkAgg(self.anc_fig, master=tab)
         self.anc_canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
         
-        # Result Buttons
         self.anc_play_frame = ctk.CTkFrame(tab, fg_color="transparent")
         self.anc_play_frame.grid(row=2, column=0, sticky="ew", pady=10)
         
         self.anc_btns = {}
         labels = ["Original", "Standard NLMS", "Hybrid CNN", "Hybrid ResNet"]
         for i, lbl in enumerate(labels):
-            btn = ctk.CTkButton(self.anc_play_frame, text=f"Play {lbl}", state="disabled", width=120)
-            btn.grid(row=0, column=i, padx=10, pady=5)
+            btn = ctk.CTkButton(self.anc_play_frame, text=f"Listen: {lbl}", state="disabled", width=140, height=30)
+            btn.grid(row=0, column=i, padx=5, pady=5)
             self.anc_btns[lbl] = btn
         self.anc_play_frame.grid_columnconfigure((0,1,2,3), weight=1)
 
     def run_anc_process(self):
         if not self.current_file_path:
-            messagebox.showwarning("Warning", "Vui lòng chọn file .wav từ danh sách bên trái!")
+            messagebox.showwarning("Warning", "Please select a file first!")
             return
 
         self.btn_run_anc.configure(state="disabled", text="Processing...")
@@ -520,114 +466,95 @@ class MainApp(ctk.CTk):
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Error", str(e)))
             finally:
-                self.after(0, lambda: self.btn_run_anc.configure(state="normal", text="⚡ RUN ANC ALGORITHM"))
+                self.after(0, lambda: self.btn_run_anc.configure(state="normal", text="RUN ANC SIMULATION"))
 
         threading.Thread(target=thread_task).start()
 
     def display_anc_results(self, res):
         colors = ['white', 'orange', 'green', '#3498db']
-        titles = [
-            '1. Original Noise', 
-            '2. Standard FxNLMS', 
-            f'3. Hybrid CNN (Filter {res["cnn"]["idx"]})', 
-            f'4. Hybrid ResNet (Filter {res["resnet"]["idx"]})'
-        ]
+        titles = ['Original Noise', 'Standard FxNLMS', 
+                  f'Hybrid CNN (Filter {res["cnn"]["idx"]})', f'Hybrid ResNet (Filter {res["resnet"]["idx"]})']
         datas = [res['original']['data'], res['std']['data'], res['cnn']['data'], res['resnet']['data']]
 
         for i, ax in enumerate(self.anc_axs):
             ax.clear()
-            ax.set_facecolor('#2b2b2b')
-            # Downsample để vẽ nhanh
+            ax.set_facecolor(PLOT_BG_COLOR)
             plot_data = downsample_signal(datas[i])
             ax.plot(plot_data, color=colors[i], linewidth=0.8)
-            
-            ax.set_title(titles[i], color='white', fontsize=10, fontweight='bold')
+            ax.set_title(titles[i], color='white', fontsize=9, fontweight='bold')
             ax.tick_params(colors='white')
             ax.grid(True, alpha=0.3)
-            for spine in ax.spines.values(): spine.set_color('white')
-            
             ax.autoscale(enable=True, axis='both', tight=True)
             ax.margins(y=0.1)
 
         self.anc_canvas.draw()
 
-        # Update Buttons
         keys = ["Original", "Standard NLMS", "Hybrid CNN", "Hybrid ResNet"]
         paths = [res['original']['path'], res['std']['path'], res['cnn']['path'], res['resnet']['path']]
-        
-        msg = "ANC Completed!\nFiles:\n"
         for k, p in zip(keys, paths):
-            self.anc_btns[k].configure(state="normal", command=lambda path=p: self.load_and_play_result(path))
-            msg += f"- {k}\n"
+            self.anc_btns[k].configure(state="normal", fg_color="#34495e", command=lambda path=p: self.load_and_play_result(path))
         
-        messagebox.showinfo("Success", msg)
+        messagebox.showinfo("Success", "ANC Simulation Completed!")
 
     # ================= TAB ENC =================
     def setup_enc_tab(self):
-        tab = self.tabview.tab("ENC (Speech Enhancement)")
+        tab = self.tabview.tab("ENC Mode")
         tab.grid_columnconfigure(0, weight=1)
-        tab.grid_rowconfigure(1, weight=1) # Plot expands
+        tab.grid_rowconfigure(1, weight=1)
 
-        # Control Row
         ctrl_frame = ctk.CTkFrame(tab, fg_color="transparent")
         ctrl_frame.grid(row=0, column=0, sticky="ew", pady=10)
 
-        ctk.CTkLabel(ctrl_frame, text="Noise Type:", font=("Arial", 12)).pack(side="left", padx=10)
-        self.noise_options = {
-            "Household Appliance": "Household_Appliance",
-            "TV / Radio": "TVnRadio",
-            "Vehicles": "Vechicles",
-            "Verbal Human": "Verbal_Human"
-        }
+        ctk.CTkLabel(ctrl_frame, text="Noise Type:").pack(side="left", padx=10)
+        self.noise_options = {"Household Appliance": "Household_Appliance", "TV / Radio": "TVnRadio", 
+                              "Vehicles": "Vechicles", "Verbal Human": "Verbal_Human"}
         self.combo_noise = ctk.CTkComboBox(ctrl_frame, values=list(self.noise_options.keys()), width=200)
         self.combo_noise.set("Household Appliance")
         self.combo_noise.pack(side="left", padx=10)
 
-        self.btn_run_enc = ctk.CTkButton(ctrl_frame, text="⚡ RUN DENOISE", 
-                                         height=40, font=("Arial", 14, "bold"), fg_color="#8e44ad",
+        self.btn_run_enc = ctk.CTkButton(ctrl_frame, text="RUN ENC SIMULATION", height=40, 
+                                         font=("Arial", 13, "bold"), fg_color="#8e44ad",
                                          command=self.run_enc_process)
         self.btn_run_enc.pack(side="left", fill="x", expand=True, padx=20)
 
-        # Plot Area
         self.enc_fig = plt.figure(figsize=(8, 6), dpi=80)
-        self.enc_fig.patch.set_facecolor('#2b2b2b')
+        self.enc_fig.patch.set_facecolor(PLOT_BG_COLOR)
         self.enc_axs = self.enc_fig.subplots(2, 1, sharex=True)
         
-        # Set Style Empty Plots
         for ax in self.enc_axs:
-            ax.set_facecolor('#2b2b2b')
-            ax.tick_params(colors='white')
+            ax.set_facecolor(PLOT_BG_COLOR)
+            ax.tick_params(colors='white', labelsize=8)
             for spine in ax.spines.values(): spine.set_color('white')
 
-        self.enc_fig.tight_layout(pad=3)
+        # Dùng logic subplots_adjust giống ANC
+        self.enc_fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.08, hspace=0.3)
+        
         self.enc_canvas = FigureCanvasTkAgg(self.enc_fig, master=tab)
         self.enc_canvas.get_tk_widget().grid(row=1, column=0, sticky="nsew", padx=10, pady=5)
 
-        # Buttons
         self.enc_play_frame = ctk.CTkFrame(tab, fg_color="transparent")
         self.enc_play_frame.grid(row=2, column=0, sticky="ew", pady=10)
         
-        self.btn_enc_orig = ctk.CTkButton(self.enc_play_frame, text="Play Original", state="disabled", width=150)
+        self.btn_enc_orig = ctk.CTkButton(self.enc_play_frame, text="Listen: Original", state="disabled", width=180, height=30)
         self.btn_enc_orig.pack(side="left", padx=20, expand=True)
         
-        self.btn_enc_clean = ctk.CTkButton(self.enc_play_frame, text="Play Cleaned", state="disabled", fg_color="#2ecc71", width=150)
+        self.btn_enc_clean = ctk.CTkButton(self.enc_play_frame, text="Listen: Cleaned", state="disabled", width=180, height=30)
         self.btn_enc_clean.pack(side="left", padx=20, expand=True)
 
     def run_enc_process(self):
         if not self.current_file_path:
-            messagebox.showwarning("Warning", "Vui lòng chọn file .wav trước!")
+            messagebox.showwarning("Warning", "Please select a file first!")
             return
 
         selected_key = self.combo_noise.get()
         noise_class = self.noise_options[selected_key]
-        self.btn_run_enc.configure(state="disabled", text="Loading Model & Processing...")
+        self.btn_run_enc.configure(state="disabled", text="Processing...")
         
         def thread_task():
             try:
                 model_name = f"DDAE_FC_{noise_class}.h5"
                 model_path = os.path.join("data", "enc", model_name)
-                if not os.path.exists(model_path):
-                    raise FileNotFoundError(f"Missing model: {model_path}")
+                if not os.path.exists(model_path): raise FileNotFoundError(f"Missing model: {model_path}")
 
                 model = load_model(model_path, compile=False)
                 audio = data_tools.audio_files_to_numpy(self.current_file_path)
@@ -638,7 +565,6 @@ class MainApp(ctk.CTk):
 
                 mag_db, phase = data_tools.numpy_audio_to_matrix_spectrogram(segments_array, './temp_split/gui_images/')
                 X_in = data_tools.scaled_in(mag_db)
-                
                 X_pred = model.predict(X_in)
                 inv_sca_X_pred = data_tools.inv_scaled_ou(X_pred)
                 X_denoise = mag_db - inv_sca_X_pred
@@ -647,6 +573,10 @@ class MainApp(ctk.CTk):
                     X_denoise, phase, segments_array.shape[1], './temp_split/gui_images/')
 
                 audio_flat = audio_reconstruct.flatten()
+                
+                
+                
+                
                 peak = np.max(np.abs(audio_flat))
                 if peak > 0: audio_flat = (audio_flat / peak * 0.8)
 
@@ -656,47 +586,63 @@ class MainApp(ctk.CTk):
                 out_path = os.path.join(output_dir, f"Denoised_{now}.wav")
                 sf.write(out_path, audio_flat, config_params.SAMPLE_RATE, 'PCM_24')
                 
-                # Đọc file gốc để vẽ
-                sig_orig, _ = sf.read(self.current_file_path)
-
-                self.after(0, lambda: self.display_enc_results(sig_orig, audio_flat, out_path))
+                # CHÚ Ý: Lấy cả FS để tính thời gian
+                sig_orig, fs_orig = sf.read(self.current_file_path)
+                
+                # Pass FS vào hàm display
+                self.after(0, lambda: self.display_enc_results(sig_orig, audio_flat, out_path, fs_orig))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Error ENC", str(e)))
             finally:
-                self.after(0, lambda: self.btn_run_enc.configure(state="normal", text="⚡ RUN DENOISE"))
+                self.after(0, lambda: self.btn_run_enc.configure(state="normal", text="RUN DENOISE"))
 
         threading.Thread(target=thread_task).start()
 
-    def display_enc_results(self, original, cleaned, clean_path):
-        # DOWNSAMPLE để tránh lỗi vẽ nếu file quá dài
-        original = downsample_signal(original)
-        cleaned = downsample_signal(cleaned)
+    def display_enc_results(self, original, cleaned, clean_path, fs_orig):
+        # Chuyển Stereo -> Mono nếu cần để vẽ cho gọn
+        if len(original.shape) > 1: original = original[:, 0]
         
-        # Plot 1
+        # Tính thời gian (Duration)
+        dur_orig = len(original) / fs_orig
+        dur_clean = len(cleaned) / config_params.SAMPLE_RATE
+
+        # Downsample
+        orig_ds = downsample_signal(original)
+        clean_ds = downsample_signal(cleaned)
+
+        # Tạo trục thời gian (Time Axis)
+        t_orig = np.linspace(0, dur_orig, len(orig_ds))
+        t_clean = np.linspace(0, dur_clean, len(clean_ds))
+        
+        # Plot 1 (Original)
         ax1 = self.enc_axs[0]
         ax1.clear()
-        ax1.set_facecolor('#2b2b2b')
-        ax1.plot(original, color='#3498db', linewidth=0.5)
-        ax1.set_title("Original (Noisy)", color='white')
+        ax1.set_facecolor(PLOT_BG_COLOR)
+        # Vẽ theo trục thời gian t_orig
+        ax1.plot(t_orig, orig_ds, color='#3498db', linewidth=0.5)
+        ax1.set_title("Original (Noisy)", color='white', fontsize=9, fontweight='bold')
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(colors='white')
-        for spine in ax1.spines.values(): spine.set_color('white')
+        ax1.autoscale(enable=True, axis='both', tight=True)
+        ax1.margins(y=0.1)
 
-        # Plot 2
+        # Plot 2 (Cleaned)
         ax2 = self.enc_axs[1]
         ax2.clear()
-        ax2.set_facecolor('#2b2b2b')
-        ax2.plot(cleaned, color='#2ecc71', linewidth=0.5)
-        ax2.set_title("Result (Cleaned)", color='white')
+        ax2.set_facecolor(PLOT_BG_COLOR)
+        # Vẽ theo trục thời gian t_clean
+        ax2.plot(t_clean, clean_ds, color='#2ecc71', linewidth=0.5)
+        ax2.set_title("Result (Cleaned)", color='white', fontsize=9, fontweight='bold')
         ax2.grid(True, alpha=0.3)
         ax2.tick_params(colors='white')
-        for spine in ax2.spines.values(): spine.set_color('white')
+        ax2.autoscale(enable=True, axis='both', tight=True)
+        ax2.margins(y=0.1)
 
         self.enc_canvas.draw()
-        messagebox.showinfo("ENC Completed", f"Đã lọc xong!\nFile lưu tại: {clean_path}")
+        messagebox.showinfo("ENC Completed", f"Denoising Successful!\nSaved at: {clean_path}")
 
-        self.btn_enc_orig.configure(state="normal", command=lambda: self.load_and_play_result(self.current_file_path))
-        self.btn_enc_clean.configure(state="normal", command=lambda: self.load_and_play_result(clean_path))
+        self.btn_enc_orig.configure(state="normal", fg_color="#34495e", command=lambda: self.load_and_play_result(self.current_file_path))
+        self.btn_enc_clean.configure(state="normal", fg_color="#27ae60", command=lambda: self.load_and_play_result(clean_path))
 
 if __name__ == "__main__":
     app = MainApp()
