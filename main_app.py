@@ -618,7 +618,7 @@ class MainApp(ctk.CTk):
         ax1.set_facecolor(PLOT_BG_COLOR)
         # Vẽ theo trục thời gian
         ax1.plot(t_orig, orig_ds, color='#3498db', linewidth=0.5)
-        ax1.set_title("Original (Noisy)", color='white', fontsize=9, fontweight='bold')
+        ax1.set_title("Original (Noisy)", color='white', fontsize=20, fontweight='bold')
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(colors='white')
         ax1.autoscale(enable=True, axis='both', tight=True)
@@ -630,7 +630,7 @@ class MainApp(ctk.CTk):
         ax2.set_facecolor(PLOT_BG_COLOR)
         # Vẽ theo trục thời gian
         ax2.plot(t_clean, clean_ds, color='#2ecc71', linewidth=0.5)
-        ax2.set_title("Result (Cleaned)", color='white', fontsize=9, fontweight='bold')
+        ax2.set_title("Result (Cleaned)", color='white', fontsize=20, fontweight='bold')
         ax2.grid(True, alpha=0.3)
         ax2.tick_params(colors='white')
         ax2.autoscale(enable=True, axis='both', tight=True)
