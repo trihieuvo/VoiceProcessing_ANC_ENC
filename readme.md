@@ -35,11 +35,11 @@ VoiceProcessing_ANC_ENC/
 │   └── enc/                        # Các module xử lý ENC (config, data_tools)
 ├── temp_split/                     # Thư mục tạm để xử lý cắt file âm thanh/ảnh spectrogram
 ├── main_app.py                     # Ứng dụng chính (GUI) chạy mô phỏng
-├── view_anc_data_app.py            # Tool xem và kiểm tra dữ liệu bộ lọc (Data Inspection)
+├── view_anc_data_app.py            # Tool xem và kiểm tra dữ liệu bộ lọc 
 ├── requirements.txt                # Danh sách thư viện cần thiết
 └── readme.md                       # Tài liệu hướng dẫn
 ```
-⚙️ Nhóm sử dụng python 3.13.9 với các thư viện được cài đặt bên dưới
+Nhóm sử dụng python 3.13.9 với các thư viện được cài đặt bên dưới
 
 ```Bash
 pip install -r requirements.txt
